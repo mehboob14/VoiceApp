@@ -9,12 +9,24 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from google.cloud import speech
 
+
+from fastapi.middleware.cors import CORSMiddleware
+
+
+
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID")
 
-
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def generate_tts(text: str) -> bytes:
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}/stream"
@@ -190,7 +202,9 @@ async def get():
                     gainNode.connect(audioContext.destination);
                     source.connect(processor);
 
-                    ws = new WebSocket(`ws://${location.host}/ws`);
+                    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+                    ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
                     ws.binaryType = 'arraybuffer';
 
                     ws.onopen = async function() {
@@ -284,7 +298,5 @@ async def get():
     """
 
 if __name__ == "__main__":
-    import uvicorn, os
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=4001)
