@@ -10,14 +10,18 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from google.cloud import speech
 
-# Environment variables
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if GOOGLE_APPLICATION_CREDENTIALS:
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
+
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID")
 
 app = FastAPI()
 
-# -------------------- TTS --------------------
+print("ELEVEN_API_KEY loaded?", bool(ELEVEN_API_KEY))
+print("ELEVEN_VOICE_ID loaded?", ELEVEN_VOICE_ID)
+
 def generate_tts(text: str) -> bytes:
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}/stream"
     headers = {
