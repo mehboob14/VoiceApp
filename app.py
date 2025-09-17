@@ -149,7 +149,7 @@ async def get():
         <title>Voice Conversation App</title>
     </head>
     <body>
-        <h1>Real-Time Voice Echo App</h1>
+        <h1>Real-Time Voice App</h1>
         <p>Click "Start Conversation" to begin. Speak, and hear an AI echo back. Say "exit" or "quit" to stop.</p>
         <button id="startBtn">Start Conversation</button>
         <button id="stopBtn" disabled>Stop</button>
