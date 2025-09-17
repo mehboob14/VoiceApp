@@ -10,14 +10,14 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from google.cloud import speech
 
-# Set your Google Cloud credentials path
-
+# Environment variables
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID")
 
 app = FastAPI()
 
+# -------------------- TTS --------------------
 def generate_tts(text: str) -> bytes:
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}/stream"
     headers = {
@@ -37,6 +37,7 @@ def generate_tts(text: str) -> bytes:
             audio_data += chunk
     return audio_data
 
+# -------------------- STT Loop --------------------
 def stt_loop(in_q: queue.Queue, out_q: queue.Queue, sample_rate: int = 16000):
     client = speech.SpeechClient()
     config = speech.RecognitionConfig(
@@ -60,6 +61,7 @@ def stt_loop(in_q: queue.Queue, out_q: queue.Queue, sample_rate: int = 16000):
         speech.StreamingRecognizeRequest(audio_content=content)
         for content in audio_generator
     )
+
     try:
         responses = client.streaming_recognize(streaming_config, request_generator)
         for response in responses:
@@ -69,8 +71,10 @@ def stt_loop(in_q: queue.Queue, out_q: queue.Queue, sample_rate: int = 16000):
             if not result.alternatives:
                 continue
             transcript = result.alternatives[0].transcript
+            print("Partial transcript:", transcript)
+
             if result.is_final:
-                print("You said:", transcript)
+                print("Final transcript:", transcript)
                 if re.search(r"\b(exit|quit)\b", transcript, re.I):
                     print("Exiting...")
                     out_q.put(None)
@@ -86,20 +90,30 @@ def stt_loop(in_q: queue.Queue, out_q: queue.Queue, sample_rate: int = 16000):
         print(f"STT error: {e}")
         out_q.put(None)
 
+# -------------------- WebSocket --------------------
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    try:
-        sample_rate = int((await websocket.receive_text()).strip())
-        print(f"Received client sample rate: {sample_rate} Hz")
-    except Exception as e:
-        print(f"Error receiving sample rate: {e}")
-        sample_rate = 16000  # Fallback
+    print("Client connected")
+
     in_q = queue.Queue()
     out_q = queue.Queue()
+
+    # Always use 16kHz to avoid mismatches
+    sample_rate = 16000
+
+    # Send a welcome test TTS immediately
+    try:
+        welcome_audio = generate_tts("Hello! Connection established. Please start speaking.")
+        await websocket.send_bytes(welcome_audio)
+        print("Sent welcome TTS")
+    except Exception as e:
+        print(f"Error sending welcome TTS: {e}")
+
     executor = ThreadPoolExecutor(max_workers=1)
     future = executor.submit(stt_loop, in_q, out_q, sample_rate)
     sent_exit = False
+
     try:
         while True:
             try:
@@ -114,6 +128,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     if audio is None:
                         sent_exit = True
                         break
+                    print(f"Sending audio chunk of size {len(audio)}")
                     await websocket.send_bytes(audio)
                 except queue.Empty:
                     break
@@ -129,7 +144,9 @@ async def websocket_endpoint(websocket: WebSocket):
         except:
             pass
         executor.shutdown(wait=True)
+        print("WebSocket closed")
 
+# -------------------- Frontend --------------------
 @app.get("/", response_class=HTMLResponse)
 async def get():
     return """
@@ -140,7 +157,6 @@ async def get():
     </head>
     <body>
         <h1>Real-Time Voice Echo App</h1>
-        <p>Click "Start Conversation" to begin. Speak, and hear an AI echo back. Say "exit" or "quit" to stop.</p>
         <button id="startBtn">Start Conversation</button>
         <button id="stopBtn" disabled>Stop</button>
         <p id="status">Status: Idle</p>
@@ -155,49 +171,28 @@ async def get():
             const stopBtn = document.getElementById('stopBtn');
             const status = document.getElementById('status');
 
-            async function getMicrophoneSampleRate() {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    const audioTrack = stream.getAudioTracks()[0];
-                    const settings = audioTrack.getSettings();
-                    stream.getTracks().forEach(track => track.stop());
-                    const sampleRate = settings.sampleRate || 16000;
-                    console.log('Detected microphone sample rate:', sampleRate);
-                    return sampleRate;
-                } catch (e) {
-                    console.warn('Could not detect sample rate:', e);
-                    return 16000; // Fallback
-                }
-            }
-
             startBtn.onclick = async function() {
                 try {
                     startBtn.disabled = true;
-                    startBtn.textContent = 'Connecting...';
                     status.textContent = 'Status: Connecting...';
 
-                    // Avoid specifying sample rate in getUserMedia to let browser handle it
                     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    const sampleRate = await getMicrophoneSampleRate();
-                    // Create AudioContext without forcing sample rate
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    console.log('AudioContext sample rate:', audioContext.sampleRate);
-                    console.log('Microphone sample rate:', sampleRate);
 
                     source = audioContext.createMediaStreamSource(mediaStream);
                     processor = audioContext.createScriptProcessor(4096, 1, 1);
                     gainNode = audioContext.createGain();
-                    gainNode.gain.value = 0; // Mute to avoid feedback
+                    gainNode.gain.value = 0;
                     processor.connect(gainNode);
                     gainNode.connect(audioContext.destination);
                     source.connect(processor);
 
-                    ws = new WebSocket(`ws://${location.host}/ws`);
+                    const protocol = location.protocol === "https:" ? "wss" : "ws";
+                    ws = new WebSocket(`${protocol}://${location.host}/ws`);
                     ws.binaryType = 'arraybuffer';
 
                     ws.onopen = async function() {
                         console.log('WebSocket connected');
-                        await ws.send(audioContext.sampleRate.toString()); // Send AudioContext sample rate
                         startBtn.textContent = 'Connected';
                         stopBtn.disabled = false;
                         status.textContent = 'Status: Connected';
@@ -215,6 +210,7 @@ async def get():
                     };
 
                     ws.onmessage = function(event) {
+                        console.log("Received audio chunk:", event.data.byteLength);
                         if (event.data instanceof ArrayBuffer && event.data.byteLength > 0) {
                             const blob = new Blob([event.data], { type: 'audio/mpeg' });
                             const url = URL.createObjectURL(blob);
@@ -249,25 +245,16 @@ async def get():
 
             function cleanup() {
                 if (processor && source) {
-                    try {
-                        source.disconnect(processor);
-                        processor.disconnect();
-                    } catch (e) {
-                        console.warn('Error disconnecting audio nodes:', e);
-                    }
+                    try { source.disconnect(processor); processor.disconnect(); } catch (e) {}
                 }
                 if (gainNode) {
-                    try {
-                        gainNode.disconnect();
-                    } catch (e) {
-                        console.warn('Error disconnecting gain node:', e);
-                    }
+                    try { gainNode.disconnect(); } catch (e) {}
                 }
                 if (mediaStream) {
                     mediaStream.getTracks().forEach(track => track.stop());
                 }
                 if (audioContext) {
-                    audioContext.close().catch(e => console.warn('Error closing AudioContext:', e));
+                    audioContext.close().catch(e => {});
                 }
                 startBtn.disabled = false;
                 startBtn.textContent = 'Start Conversation';
@@ -285,7 +272,7 @@ async def get():
     </html>
     """
 
-import os
+# -------------------- Run --------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     uvicorn.run(app, host="0.0.0.0", port=port)
