@@ -188,7 +188,9 @@ async def get():
                     source.connect(processor);
 
                     const protocol = location.protocol === "https:" ? "wss" : "ws";
-                    ws = new WebSocket(`${protocol}://${location.host}/ws`);
+                    const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+                    ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
+
                     ws.binaryType = 'arraybuffer';
 
                     ws.onopen = async function() {
