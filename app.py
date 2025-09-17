@@ -3,6 +3,7 @@ import os
 import queue
 import re
 from concurrent.futures import ThreadPoolExecutor
+import uvicorn
 
 import requests
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
