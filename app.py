@@ -9,24 +9,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from google.cloud import speech
 
-
-from fastapi.middleware.cors import CORSMiddleware
-
-
+# Set your Google Cloud credentials path
 
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID")
 
 app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 def generate_tts(text: str) -> bytes:
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}/stream"
@@ -149,7 +138,7 @@ async def get():
         <title>Voice Conversation App</title>
     </head>
     <body>
-        <h1>Real-Time Voice App</h1>
+        <h1>Real-Time Voice Echo App</h1>
         <p>Click "Start Conversation" to begin. Speak, and hear an AI echo back. Say "exit" or "quit" to stop.</p>
         <button id="startBtn">Start Conversation</button>
         <button id="stopBtn" disabled>Stop</button>
@@ -202,9 +191,7 @@ async def get():
                     gainNode.connect(audioContext.destination);
                     source.connect(processor);
 
-                    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-                    ws = new WebSocket(`${protocol}//${location.host}/ws`);
-
+                    ws = new WebSocket(`ws://${location.host}/ws`);
                     ws.binaryType = 'arraybuffer';
 
                     ws.onopen = async function() {
@@ -299,4 +286,4 @@ async def get():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 4001)))
+    uvicorn.run(app, host="0.0.0.0", port=8000)
